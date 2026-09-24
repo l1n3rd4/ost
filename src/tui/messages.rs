@@ -9,7 +9,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph, Widget},
 };
 
-use crate::api;
+use crate::domain::Message as DomainMessage;
 
 /// Default header shown when no channel is selected.
 const DEFAULT_HEADER: &str = "Select a channel or chat";
@@ -83,14 +83,24 @@ impl Default for MessagesState {
 }
 
 impl MessagesState {
-    /// Update messages from API response.
-    pub fn update_messages(&mut self, header: &str, api_messages: Vec<api::MessageInfo>) {
+    /// Update messages from the domain models forwarded by the use-case
+    /// services.
+    ///
+    /// The domain [`Message`](crate::domain::Message) carries an optional
+    /// `DateTime<Utc>`; render it to RFC 3339 (the same shape the API returns
+    /// and the console presenter emits) so [`format_timestamp`] can parse it. A
+    /// missing timestamp becomes an empty string, which `format_timestamp`
+    /// passes through unchanged.
+    pub fn update_messages(&mut self, header: &str, domain_messages: Vec<DomainMessage>) {
         self.channel_header = header.to_string();
-        self.messages = api_messages
+        self.messages = domain_messages
             .into_iter()
             .map(|m| Message {
                 sender: m.sender,
-                timestamp: m.timestamp,
+                timestamp: m
+                    .timestamp
+                    .map(|ts| ts.to_rfc3339())
+                    .unwrap_or_default(),
                 content: m.content,
                 reactions: Vec::new(),
                 reply_count: 0,

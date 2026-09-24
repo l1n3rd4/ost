@@ -43,6 +43,9 @@ toml = "0.8"
 
 # Async utilities
 futures = "0.3"
+# Port traits (async trait methods) and stream types
+async-trait = "0.1"
+futures-core = "0.3"
 
 # WebSocket (Trouter)
 tokio-tungstenite = { version = "0.20", features = ["native-tls"] }
@@ -55,3 +58,4 @@ default = []
 
 [dev-dependencies]
 tokio-test = "0.4"
+proptest = "1"

@@ -3,9 +3,10 @@
 use anyhow::Result;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::DefaultTerminal;
+use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_stream::StreamExt;
 
-use super::backend::{Backend, BackendCommand, BackendResponse};
+use super::backend::{Backend, BackendCommand, TuiServices};
 use super::compose::ComposeState;
 use super::debug_log::DebugLogState;
 use super::log_capture::LogBuffer;
@@ -13,6 +14,23 @@ use super::messages::MessagesState;
 use super::search::SearchState;
 use super::sidebar::SidebarState;
 use super::ui;
+use crate::adapters::presenter::TuiUpdate;
+use crate::domain::Presence;
+
+/// Human-readable availability label for a [`Presence`] value.
+///
+/// Mirrors the console presenter's `presence_label`, so the status bar shows
+/// the same wording the CLI prints (e.g. `Away`, `DoNotDisturb`).
+fn presence_label(presence: &Presence) -> String {
+    match presence {
+        Presence::Available => "Available".to_string(),
+        Presence::Busy => "Busy".to_string(),
+        Presence::Away => "Away".to_string(),
+        Presence::DoNotDisturb => "DoNotDisturb".to_string(),
+        Presence::Offline => "Offline".to_string(),
+        Presence::Custom(s) => s.clone(),
+    }
+}
 
 /// Active pane in the TUI
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -450,49 +468,40 @@ impl App {
         self.search.deactivate();
     }
 
-    /// Handle a response from the async backend.
-    fn handle_backend_response(&mut self, response: BackendResponse, backend: &Backend) {
-        match response {
-            BackendResponse::Teams(Ok(teams)) => {
+    /// Fold a presentation update from a use-case service into `App` state.
+    ///
+    /// Each [`TuiUpdate`] variant is produced by the shared services via the
+    /// injected [`TuiPresenter`](crate::adapters::presenter::TuiPresenter) and
+    /// carries a domain model. This is the successor to the old
+    /// `handle_backend_response`, sourced from domain models rather than legacy
+    /// `api::*Info` types; the state mutations mirror the old ones so the
+    /// interactive behavior (loading flags, panes, status bar) is preserved.
+    fn handle_tui_update(&mut self, update: TuiUpdate, backend: &Backend) {
+        match update {
+            TuiUpdate::Teams(teams) => {
                 self.sidebar.update_teams(teams);
                 self.sidebar.loading = false;
                 self.close_stale_search();
-                // If this is the first data load and we have teams, select the first
-                // selectable item (skip TeamsHeader).
+                // If this is the first data load and we have teams, select the
+                // first selectable item (skip TeamsHeader).
                 if self.sidebar.selected == 0 {
                     self.sidebar.clamp_selection();
                 }
             }
-            BackendResponse::Teams(Err(e)) => {
-                self.set_error(format!("Failed to load teams: {:#}", e));
-                self.sidebar.loading = false;
-            }
-            BackendResponse::Chats(Ok(chats)) => {
+            TuiUpdate::Chats(chats) => {
                 self.sidebar.update_chats(chats);
                 self.sidebar.loading = false;
                 self.close_stale_search();
             }
-            BackendResponse::Chats(Err(e)) => {
-                self.set_error(format!("Failed to load chats: {:#}", e));
-                self.sidebar.loading = false;
+            TuiUpdate::Messages(messages) => {
+                // Messages arrive for whichever chat load is in flight; the
+                // header was set when the load was initiated. Apply to the
+                // currently viewed chat (the loading flag guards the pane).
+                let header = self.messages.channel_header.clone();
+                self.messages.update_messages(&header, messages);
+                self.close_stale_search();
             }
-            BackendResponse::Messages { chat_id, result } => {
-                // Only apply if this is still the chat we're looking at.
-                if self.current_chat_id.as_deref() == Some(&chat_id) {
-                    match result {
-                        Ok(msgs) => {
-                            let header = self.messages.channel_header.clone();
-                            self.messages.update_messages(&header, msgs);
-                            self.close_stale_search();
-                        }
-                        Err(e) => {
-                            self.messages.loading = false;
-                            self.set_error(format!("Failed to load messages: {:#}", e));
-                        }
-                    }
-                }
-            }
-            BackendResponse::MessageSent(Ok(())) => {
+            TuiUpdate::MessageSent(_sent) => {
                 self.status_message = Some("Message sent".to_string());
                 self.status_is_error = false;
                 // Reload messages for the current chat.
@@ -503,36 +512,31 @@ impl App {
                     });
                 }
             }
-            BackendResponse::MessageSent(Err(e)) => {
-                self.set_error(format!("Failed to send message: {:#}", e));
+            TuiUpdate::User(user) => {
+                self.user_name = user.display_name;
             }
-            BackendResponse::UserInfo(Ok(info)) => {
-                self.user_name = info.display_name;
-            }
-            BackendResponse::UserInfo(Err(e)) => {
-                self.set_error(format!("Failed to load user info: {:#}", e));
-            }
-            BackendResponse::Presence(Ok(presence)) => {
-                let is_online = presence.availability != "Offline"
-                    && presence.availability != "PresenceUnknown";
+            TuiUpdate::Presence(presence) => {
+                let is_online = !matches!(presence, Presence::Offline);
                 self.is_online = is_online;
                 self.connection_state = if is_online {
                     "Connected".to_string()
                 } else {
-                    format!("Status: {}", presence.availability)
+                    format!("Status: {}", presence_label(&presence))
                 };
             }
-            BackendResponse::Presence(Err(e)) => {
-                tracing::debug!("Failed to load presence: {:#}", e);
-                // Presence failure is non-critical; don't show error in status bar.
-                self.connection_state = "Connected".to_string();
-                self.is_online = true;
+            TuiUpdate::Event(event) => {
+                // Realtime events are not yet surfaced in a dedicated pane; log
+                // for the debug pane and leave interactive state untouched.
+                tracing::debug!("Realtime event: {:?}", event);
             }
-            BackendResponse::ClientError(msg) => {
-                self.connection_state = "Not authenticated".to_string();
-                self.is_online = false;
+            TuiUpdate::Error(msg) => {
+                // A service reported a failure. The most common at startup is an
+                // auth/transport failure while loading data; surface it in the
+                // status bar and clear the sidebar's loading spinner so the UI
+                // does not hang on "Loading...".
                 self.sidebar.loading = false;
-                self.set_error(format!("Auth: {}", msg));
+                self.messages.loading = false;
+                self.set_error(msg);
             }
         }
     }
@@ -562,8 +566,18 @@ impl App {
 /// Run the TUI application with terminal restore on exit.
 ///
 /// Sets up a panic hook so the terminal is always restored even on panic.
-/// Requires a LogBuffer for capturing tracing output into the debug log pane.
-pub async fn run(log_buffer: LogBuffer) -> Result<()> {
+/// Requires a `LogBuffer` for capturing tracing output into the debug log pane.
+///
+/// `services` are the shared use-case services wired at the composition root
+/// (each already holds the injected [`TuiPresenter`]), and `updates` is the
+/// receiving half of that presenter's channel. The TUI drives the services via
+/// [`Backend`] and folds the resulting [`TuiUpdate`]s into `App` state, so it
+/// obtains its data through the *same* services as the CLI (Requirement 8.4).
+pub async fn run(
+    log_buffer: LogBuffer,
+    services: TuiServices,
+    updates: UnboundedReceiver<TuiUpdate>,
+) -> Result<()> {
     // Install a panic hook that restores the terminal before printing the panic.
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -572,17 +586,23 @@ pub async fn run(log_buffer: LogBuffer) -> Result<()> {
     }));
 
     let mut terminal = ratatui::init();
-    let res = run_app(&mut terminal, log_buffer).await;
+    let res = run_app(&mut terminal, log_buffer, services, updates).await;
     ratatui::restore();
     res
 }
 
-async fn run_app(terminal: &mut DefaultTerminal, log_buffer: LogBuffer) -> Result<()> {
+async fn run_app(
+    terminal: &mut DefaultTerminal,
+    log_buffer: LogBuffer,
+    services: TuiServices,
+    mut updates: UnboundedReceiver<TuiUpdate>,
+) -> Result<()> {
     let mut app = App::new(log_buffer);
-    let mut backend = Backend::start();
+    let backend = Backend::start(services);
     let mut events = EventStream::new();
 
-    // Fire initial data loads.
+    // Fire initial data loads. Results arrive over the presenter's update
+    // channel (`updates`) as the services complete.
     backend.send(BackendCommand::LoadTeams);
     backend.send(BackendCommand::LoadChats { limit: 50 });
     backend.send(BackendCommand::LoadUserInfo);
@@ -608,13 +628,15 @@ async fn run_app(terminal: &mut DefaultTerminal, log_buffer: LogBuffer) -> Resul
                     }
                 }
             }
-            maybe_response = backend.recv() => {
-                match maybe_response {
-                    Some(response) => {
-                        app.handle_backend_response(response, &backend);
+            maybe_update = updates.recv() => {
+                match maybe_update {
+                    Some(update) => {
+                        app.handle_tui_update(update, &backend);
                     }
                     None => {
-                        // Backend channel closed.
+                        // All presenter senders dropped (the backend task and
+                        // its services are gone); no further updates can arrive.
+                        // Mirror the old backend-channel-closed behavior.
                         break;
                     }
                 }

@@ -177,7 +177,11 @@ pub async fn login(force: bool) -> Result<()> {
     Ok(())
 }
 
-/// Clear stored credentials
+/// Clear stored credentials.
+///
+/// Superseded at the composition root (task 8.1), which performs logout through
+/// `ConfigRepositoryPort`. Retained as part of the public auth surface.
+#[allow(dead_code)]
 pub async fn logout() -> Result<()> {
     let mut config = Config::load()?;
     config.clear_tokens();

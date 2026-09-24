@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Paragraph, Widget},
 };
 
-use crate::api;
+use crate::domain::{Chat as DomainChat, Team as DomainTeam};
 
 // ---------------------------------------------------------------------------
 // Data model
@@ -71,35 +71,34 @@ impl Default for SidebarState {
 }
 
 impl SidebarState {
-    /// Update teams data from API response.
-    pub fn update_teams(&mut self, teams: Vec<api::TeamInfo>) {
+    /// Update teams data from the domain models forwarded by the use-case
+    /// services.
+    ///
+    /// The domain [`Team`](crate::domain::Team) does not carry channels (the
+    /// domain slice dropped them), so each team is shown with an empty channel
+    /// list. This matches the console presenter, which likewise renders teams
+    /// with a "(0 channels)" listing.
+    pub fn update_teams(&mut self, teams: Vec<DomainTeam>) {
         self.teams = teams
             .into_iter()
             .map(|t| Team {
-                name: t.name,
+                name: t.display_name,
                 id: t.id,
                 expanded: true,
-                channels: t
-                    .channels
-                    .into_iter()
-                    .map(|c| Channel {
-                        name: c.name,
-                        id: c.id,
-                        unread: 0,
-                    })
-                    .collect(),
+                channels: Vec::new(),
             })
             .collect();
         self.clamp_selection();
     }
 
-    /// Update chats data from API response.
-    pub fn update_chats(&mut self, chats: Vec<api::ChatInfo>) {
+    /// Update chats data from the domain models forwarded by the use-case
+    /// services.
+    pub fn update_chats(&mut self, chats: Vec<DomainChat>) {
         self.chats = chats
             .into_iter()
             .map(|c| Chat {
                 name: c.name,
-                id: c.id,
+                id: c.id.as_str().to_string(),
                 is_group: c.is_group,
                 unread: 0,
                 online: false,

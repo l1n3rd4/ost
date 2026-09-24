@@ -14,4 +14,5 @@ mod sidebar;
 mod ui;
 
 pub use app::run;
+pub use backend::{TuiServices, WiredServices};
 pub use log_capture::LogBuffer;

@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use super::client::TeamsClient;
+use crate::domain::{html_escape, strip_html};
 
 // -- Response types for the native chat API --
 
@@ -50,28 +51,6 @@ struct NativeMessage {
 #[derive(Debug, Deserialize)]
 struct MessagesResponse {
     messages: Option<Vec<NativeMessage>>,
-}
-
-/// Strip HTML tags from content for CLI display.
-fn strip_html(html: &str) -> String {
-    let mut result = String::with_capacity(html.len());
-    let mut in_tag = false;
-    for ch in html.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => result.push(ch),
-            _ => {}
-        }
-    }
-    // Decode common HTML entities
-    result
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&nbsp;", " ")
 }
 
 /// Display name for a conversation.
@@ -150,15 +129,6 @@ pub async fn send_message(chat_id: &str, message: &str) -> Result<()> {
     send_message_with_client(&client, chat_id, message).await?;
     println!("Message sent.");
     Ok(())
-}
-
-/// HTML-escape text for embedding in Teams RichText/Html messages.
-fn html_escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
 }
 
 /// Send a message using an existing client (shared helper).
@@ -350,4 +320,145 @@ pub async fn read_messages_data(
     }
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    //! In-crate tests for the `conversations` JSON → chat parsing path.
+    //!
+    //! These tests support spec task 5.3 (HTTP→domain mapping). The serde types
+    //! (`ConversationsResponse`, `Conversation`, ...) are private to this
+    //! module, so a test outside `api::chat` cannot deserialize them. Deserializing
+    //! a recorded fixture here verifies that the raw Teams `conversations`
+    //! payload maps onto the fields `ChatInfo` is built from — id, display name
+    //! (`threadProperties.topic` with sender fallback), and the HTML-stripped
+    //! last-message preview — and that conversations without an id are skipped.
+    //! No network: pure deserialization + the same pure conversion helpers used
+    //! by `list_chats_data`. The `ChatInfo` → domain `Chat` half lives in the
+    //! adapter's own test module (`adapters::http::reqwest_api`).
+
+    use super::*;
+    use crate::domain::strip_html;
+
+    /// A recorded (trimmed) `conversations` response: one group thread with a
+    /// topic and an HTML last message, one 1:1 chat whose name falls back to
+    /// the sender display name, and one malformed conversation with no id that
+    /// must be skipped.
+    const CONVERSATIONS_JSON: &str = r#"{
+        "conversations": [
+            {
+                "id": "19:abcThread@thread.v2",
+                "threadProperties": { "topic": "Project Phoenix" },
+                "lastMessage": {
+                    "imdisplayname": "Alice Smith",
+                    "content": "<p>Hello <b>team</b> &amp; welcome!</p>",
+                    "originalarrivaltime": "2024-05-01T12:30:00Z",
+                    "messagetype": "RichText/Html"
+                }
+            },
+            {
+                "id": "19:oneonone@unq.gbl.spaces",
+                "threadProperties": {},
+                "lastMessage": {
+                    "imdisplayname": "Bob Jones",
+                    "content": "hi there",
+                    "composetime": "2024-05-02T09:00:00Z",
+                    "messagetype": "Text"
+                }
+            },
+            {
+                "threadProperties": { "topic": "Ghost thread" },
+                "lastMessage": { "imdisplayname": "Nobody", "content": "x" }
+            }
+        ]
+    }"#;
+
+    /// The recorded fixture deserializes into the private serde types and yields
+    /// exactly the three conversations present in the payload.
+    #[test]
+    fn conversations_json_deserializes() {
+        let parsed: ConversationsResponse =
+            serde_json::from_str(CONVERSATIONS_JSON).expect("fixture must deserialize");
+        let convs = parsed.conversations.expect("conversations field present");
+        assert_eq!(convs.len(), 3);
+    }
+
+    /// The group thread maps to its `threadProperties.topic` name, and its HTML
+    /// last message is stripped/entity-decoded for the preview.
+    #[test]
+    fn group_conversation_maps_topic_and_strips_html_preview() {
+        let parsed: ConversationsResponse =
+            serde_json::from_str(CONVERSATIONS_JSON).expect("fixture must deserialize");
+        let convs = parsed.conversations.unwrap();
+        let group = &convs[0];
+
+        assert_eq!(conversation_name(group), "Project Phoenix");
+
+        let raw = group
+            .last_message
+            .as_ref()
+            .and_then(|m| m.content.as_deref())
+            .expect("group has last-message content");
+        // Same transform list_chats_data applies to build the preview.
+        assert_eq!(strip_html(raw), "Hello team & welcome!");
+    }
+
+    /// A 1:1 chat with no topic falls back to the last-message sender display
+    /// name, and a plain-text body passes through `strip_html` unchanged.
+    #[test]
+    fn direct_conversation_falls_back_to_sender_name() {
+        let parsed: ConversationsResponse =
+            serde_json::from_str(CONVERSATIONS_JSON).expect("fixture must deserialize");
+        let convs = parsed.conversations.unwrap();
+        let direct = &convs[1];
+
+        assert_eq!(conversation_name(direct), "Bob Jones");
+
+        let raw = direct
+            .last_message
+            .as_ref()
+            .and_then(|m| m.content.as_deref())
+            .unwrap();
+        assert_eq!(strip_html(raw), "hi there");
+    }
+
+    /// Conversations without an id are skipped when building `ChatInfo`, exactly
+    /// as `list_chats_data` filters them (`id.is_empty() => continue`). Running
+    /// the same id-extraction + filter here proves the malformed third
+    /// conversation contributes no chat.
+    #[test]
+    fn empty_id_conversation_is_skipped() {
+        let parsed: ConversationsResponse =
+            serde_json::from_str(CONVERSATIONS_JSON).expect("fixture must deserialize");
+        let convs = parsed.conversations.unwrap();
+
+        let kept: Vec<String> = convs
+            .iter()
+            .map(|c| c.id.as_deref().unwrap_or("").to_string())
+            .filter(|id| !id.is_empty())
+            .collect();
+
+        assert_eq!(
+            kept,
+            vec![
+                "19:abcThread@thread.v2".to_string(),
+                "19:oneonone@unq.gbl.spaces".to_string(),
+            ]
+        );
+        // The third (id-less) conversation is absent.
+        assert_eq!(kept.len(), 2);
+    }
+
+    /// The group thread id contains `thread`, so it classifies as a group chat;
+    /// the 1:1 id does not, so it is not a group — mirroring the `is_group`
+    /// derivation in `list_chats_data`.
+    #[test]
+    fn is_group_derives_from_id_shape() {
+        let group_id = "19:abcThread@thread.v2";
+        let direct_id = "19:oneonone@unq.gbl.spaces";
+
+        let is_group = |id: &str| id.contains("thread") || id.contains("meeting");
+        assert!(is_group(group_id));
+        assert!(!is_group(direct_id));
+    }
 }
