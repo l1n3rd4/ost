@@ -28,7 +28,7 @@ impl TeamsClient {
         if needs_refresh {
             if config.get_refresh_token().is_some() {
                 tracing::info!("Tokens missing or expired, refreshing...");
-                match crate::auth::oauth::refresh().await {
+                match crate::auth::refresh().await {
                     Ok(true) => {
                         config = Config::load()?;
                         tracing::info!("Token refreshed");
