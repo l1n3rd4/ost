@@ -7,6 +7,7 @@
 # IDE
 .idea/
 .vscode/
+.kiro/
 *.swp
 *.swo
 *~
@@ -15,7 +16,11 @@
 .DS_Store
 Thumbs.db
 
+# AI agent tooling (auto-created symlink -> AGENTS.md)
+CLAUDE.md
+
 # Local configuration (tokens are stored in ~/.config/teams-cli/)
 .env
 *.local
 tmp/
+CLAUDE.md
