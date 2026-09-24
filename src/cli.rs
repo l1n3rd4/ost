@@ -70,45 +70,6 @@ pub enum Commands {
         set: Option<String>,
     },
 
-    /// Place a test call to yourself (self-call)
-    CallTest {
-        /// Duration in seconds to keep the call active
-        #[arg(short, long, default_value = "15")]
-        duration: u64,
-
-        /// Enable call recording via recorder bot injection
-        #[arg(long)]
-        record: bool,
-
-        /// Call the Echo / Call Quality Tester bot instead of channel meeting
-        #[arg(long)]
-        echo: bool,
-
-        /// 1:1 chat thread ID to call (e.g., 19:guid1_guid2@unq.gbl.spaces)
-        #[arg(long)]
-        thread: Option<String>,
-
-        /// Enable camera capture (V4L2) for video send (requires video-capture feature)
-        #[arg(long)]
-        camera: bool,
-
-        /// Enable video display window for received video (requires video-capture feature)
-        #[arg(long)]
-        display: bool,
-
-        /// Use 1kHz test tone instead of real microphone (debug mode)
-        #[arg(long)]
-        tone: bool,
-    },
-
-    /// Test microphone capture: record 3 seconds then play back
-    #[cfg(feature = "audio")]
-    MicTest,
-
-    /// Test camera capture: record 3 seconds then play back in SDL2 window
-    #[cfg(feature = "video-capture")]
-    CamTest,
-
     /// Launch the terminal user interface
     Tui,
 }

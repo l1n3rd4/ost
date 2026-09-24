@@ -99,10 +99,6 @@ const VIEWS: Category = Category {
             key: "F4",
             desc: "Calendar",
         },
-        Shortcut {
-            key: "F5",
-            desc: "Calls",
-        },
     ],
 };
 

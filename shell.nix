@@ -21,28 +21,14 @@ pkgs.mkShell {
     clippy
     rustfmt
 
-    # Audio (ALSA - needed for cpal audio I/O)
-    alsa-lib
-
-    # Video capture/display (V4L2, SDL2, openh264)
-    v4l-utils
-    linuxHeaders
-    SDL2
-    SDL2.dev
-    nasm
-
     # Build tools
     gnumake
     cmake
     pkg-config
     openssl
-    llvmPackages.libclang
-    clang
   ];
 
   shellHook = ''
-    export PKG_CONFIG_PATH="${pkgs.alsa-lib}/lib/pkgconfig:${pkgs.openssl.dev}/lib/pkgconfig:${pkgs.SDL2.dev}/lib/pkgconfig:$PKG_CONFIG_PATH"
-    export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib"
-    export BINDGEN_EXTRA_CLANG_ARGS="-I${pkgs.linuxHeaders}/include -I${pkgs.glibc.dev}/include"
+    export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig:$PKG_CONFIG_PATH"
   '';
 }

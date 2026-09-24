@@ -14,18 +14,6 @@ build:
 build-release:
     cargo build --release
 
-# Build with audio support (microphone/speaker)
-build-audio:
-    cargo build --features audio
-
-# Build with video capture support (camera/display)
-build-video:
-    cargo build --features video-capture
-
-# Build with full A/V support
-build-full:
-    cargo build --features "audio,video-capture"
-
 # --- Quality ---
 
 # Run clippy lints
@@ -57,10 +45,6 @@ e2e: build
     ./tests/e2e_chats.sh
     ./tests/e2e_teams.sh
 
-# Run call test (requires valid login + call service access)
-e2e-call: build
-    ./tests/e2e_echo123.sh
-
 # --- Run ---
 
 # Show CLI help
@@ -91,26 +75,8 @@ teams:
 trouter:
     cargo run -- trouter
 
-# --- Audio/Video ---
-
-# Test microphone (record 3s, playback)
-mic-test: build-audio
-    ./target/debug/teams-cli mic-test
-
-# Test camera (capture 3s, display)
-cam-test: build-video
-    ./target/debug/teams-cli cam-test
-
-# Place audio call to Echo bot (20s)
-call-echo: build-audio
-    ./target/debug/teams-cli call-test --echo --duration 20
-
 # --- TUI ---
 
 # Launch the terminal UI
 tui: build
     ./target/debug/teams-cli tui
-
-# Place A/V call to Echo bot with camera and display (20s)
-call-echo-video: build-full
-    ./target/debug/teams-cli call-test --echo --camera --display --duration 20

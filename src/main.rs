@@ -4,7 +4,6 @@
 
 mod api;
 mod auth;
-mod calling;
 mod config;
 mod models;
 mod trouter;
@@ -84,28 +83,6 @@ async fn main() -> Result<()> {
         }
         Commands::Trouter => {
             trouter::connect_and_run().await?;
-        }
-        Commands::CallTest {
-            duration,
-            record,
-            echo,
-            thread,
-            camera,
-            display,
-            tone,
-        } => {
-            calling::call_test::run_call_test(
-                duration, record, echo, thread, camera, display, tone,
-            )
-            .await?;
-        }
-        #[cfg(feature = "audio")]
-        Commands::MicTest => {
-            calling::audio::mic_test()?;
-        }
-        #[cfg(feature = "video-capture")]
-        Commands::CamTest => {
-            calling::camera::cam_test()?;
         }
         Commands::Presence { set } => match set {
             Some(status) => {

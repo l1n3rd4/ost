@@ -15,9 +15,6 @@ A command-line client for Microsoft Teams written in Rust.
 - **Messaging**: List chats, read messages, send messages (stable)
 - **Teams**: List joined teams and channels (stable)
 - **Real-time**: WebSocket connection for push notifications (Trouter)
-- **Calling**: Audio and video calls with RTP/SRTP media
-- **Audio** (optional): Microphone capture and speaker playback (working)
-- **Video** (optional): Camera capture via V4L2 and SDL2 display (WIP)
 
 ## Status
 
@@ -28,22 +25,12 @@ A command-line client for Microsoft Teams written in Rust.
 | Chat / Messaging | Stable |
 | Teams / Channels | Stable |
 | Trouter (push) | Stable |
-| Audio calls | Working |
-| Video calls | WIP - may cause audio issues |
-
-**Note**: Video support is work-in-progress. Building with `--features video-capture` may interfere with audio functionality. For reliable audio calls, use `--features audio` only.
 
 ## Requirements
 
 - Rust 1.70+ (some dependencies are pinned for compatibility with older rustc versions)
-- Linux (for audio/video features)
 - Nix (recommended) or manual dependency installation
 - [just](https://github.com/casey/just) command runner (optional, for convenience recipes)
-
-### Dependencies
-
-- **Audio**: ALSA development libraries
-- **Video**: V4L2, SDL2, OpenH264
 
 ## Installation
 
@@ -62,21 +49,6 @@ Install dependencies, then:
 
 ```bash
 cargo build
-```
-
-For audio support:
-```bash
-cargo build --features audio
-```
-
-For video support:
-```bash
-cargo build --features video-capture
-```
-
-For full A/V support:
-```bash
-cargo build --features "audio,video-capture"
 ```
 
 ## Usage
@@ -146,26 +118,6 @@ Connect to Trouter for push notifications:
 teams-cli trouter
 ```
 
-### Calling
-
-Test microphone (requires `--features audio`):
-
-```bash
-teams-cli mic-test
-```
-
-Test camera (requires `--features video-capture`):
-
-```bash
-teams-cli cam-test
-```
-
-Place a test call to Echo bot:
-
-```bash
-teams-cli call-test --echo --duration 20
-```
-
 ## CLI Reference
 
 ```
@@ -190,16 +142,6 @@ Commands:
   tui        Launch interactive terminal user interface
   presence   Get/set presence status
   trouter    Connect to push notification service
-  call-test  Place a test call
-             --echo       Call the Echo bot (call quality tester)
-             --duration N Call duration in seconds (default: 30)
-             --thread ID  1:1 chat thread ID to call
-             --record     Enable call recording
-             --camera     Enable camera capture (video-capture feature)
-             --display    Enable video display window (video-capture feature)
-             --tone       Use test tone instead of microphone
-  mic-test   Test microphone (audio feature)
-  cam-test   Test camera (video-capture feature)
 ```
 
 ## Testing
@@ -230,7 +172,6 @@ Individual e2e tests:
 | `tests/e2e_chats.sh` | Chat listing |
 | `tests/e2e_read.sh` | Message reading |
 | `tests/e2e_teams.sh` | Teams/channels listing |
-| `tests/e2e_echo123.sh` | Echo bot call test |
 
 ### Quality Checks
 
@@ -246,7 +187,7 @@ Tokens are stored in `~/.config/teams-cli/config.toml` with restricted permissio
 
 ## Documentation
 
-- [Architecture Diagrams](docs/architecture.md) - Visual diagrams of authentication, messaging, calling, and media flows
+- [Architecture Diagrams](docs/architecture.md) - Visual diagrams of authentication and messaging flows
 - [Terminology Index](docs/terminology_index.md) - Glossary of protocols and terms (RTP, SRTP, ICE, SDP, etc.)
 - [GUIDs Reference](docs/GUIDs.md) - Known Microsoft GUIDs (OAuth client IDs, tenant IDs, SEI UUIDs, bot MRIs)
 
