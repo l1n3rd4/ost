@@ -4,31 +4,25 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use super::client::TeamsClient;
+use crate::domain::Team;
 
 #[derive(Debug, Deserialize)]
 struct TeamsResponse {
-    value: Vec<Team>,
+    value: Vec<RawTeam>,
 }
 
 #[derive(Debug, Deserialize)]
-struct Team {
+struct RawTeam {
     id: String,
     #[serde(rename = "displayName")]
     display_name: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Data-returning API functions for TUI integration
-// ---------------------------------------------------------------------------
-
-/// Team metadata for TUI display.
-pub struct TeamInfo {
-    pub id: String,
-    pub name: String,
-}
-
-/// List joined teams and return structured data.
-pub async fn list_teams_data(client: &TeamsClient) -> Result<Vec<TeamInfo>> {
+/// List joined teams and return domain [`Team`] models.
+///
+/// A missing `displayName` falls back to the team id, matching the previous
+/// behavior.
+pub async fn list_teams_data(client: &TeamsClient) -> Result<Vec<Team>> {
     tracing::debug!("Fetching joined teams...");
     let resp = client.graph_get("/me/joinedTeams").await?;
     let teams: TeamsResponse = resp
@@ -38,10 +32,11 @@ pub async fn list_teams_data(client: &TeamsClient) -> Result<Vec<TeamInfo>> {
 
     let result = teams
         .value
-        .iter()
-        .map(|team| TeamInfo {
-            id: team.id.clone(),
-            name: team.display_name.as_deref().unwrap_or(&team.id).to_string(),
+        .into_iter()
+        .map(|team| Team {
+            display_name: team.display_name.unwrap_or_else(|| team.id.clone()),
+            id: team.id,
+            description: None,
         })
         .collect();
 

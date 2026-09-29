@@ -4,10 +4,25 @@
 //! bypassing Graph API which requires tenant admin consent for Chat.Read.
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use super::client::TeamsClient;
-use crate::domain::{html_escape, strip_html};
+use crate::domain::{html_escape, strip_html, Chat, ChatId, Message, MessagePreview};
+
+/// Best-effort parse of an API timestamp string into `DateTime<Utc>`.
+///
+/// Returns `None` on any parse failure (RFC 3339 is tried); a timestamp miss
+/// never fails the surrounding operation.
+fn parse_timestamp(raw: &str) -> Option<DateTime<Utc>> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    DateTime::parse_from_rfc3339(trimmed)
+        .map(|dt| dt.with_timezone(&Utc))
+        .ok()
+}
 
 // -- Response types for the native chat API --
 
@@ -89,29 +104,11 @@ pub async fn send_message_with_client(
 }
 
 // ---------------------------------------------------------------------------
-// Data-returning API functions for TUI integration
+// Data-returning API functions
 // ---------------------------------------------------------------------------
 
-/// Chat metadata for TUI display.
-#[allow(dead_code)]
-pub struct ChatInfo {
-    pub id: String,
-    pub name: String,
-    pub is_group: bool,
-    pub last_message_time: Option<String>,
-    pub last_message_sender: Option<String>,
-    pub last_message_preview: Option<String>,
-}
-
-/// A single message for TUI display.
-pub struct MessageInfo {
-    pub sender: String,
-    pub timestamp: String,
-    pub content: String,
-}
-
-/// List recent chats and return structured data.
-pub async fn list_chats_data(client: &TeamsClient, limit: usize) -> Result<Vec<ChatInfo>> {
+/// List recent chats and return domain [`Chat`] models.
+pub async fn list_chats_data(client: &TeamsClient, limit: usize) -> Result<Vec<Chat>> {
     // Strategy 1: CSA AFD endpoint with Bearer auth
     let csa_url = format!(
         "https://teams.microsoft.com/api/csa/api/v1/teams/users/ME/conversations?view=mychats&pageSize={}",
@@ -162,51 +159,62 @@ pub async fn list_chats_data(client: &TeamsClient, limit: usize) -> Result<Vec<C
         let name = conversation_name(conv);
         let is_group = id.contains("thread") || id.contains("meeting");
 
-        let (last_time, last_sender, last_preview) = if let Some(ref msg) = conv.last_message {
-            let time = msg
-                .original_arrival_time
-                .as_deref()
-                .or(msg.compose_time.as_deref())
-                .map(String::from);
+        let last_message = conv.last_message.as_ref().and_then(|msg| {
             let sender = msg.im_display_name.clone();
-            let preview = msg.content.as_deref().map(|c| {
-                let text = strip_html(c);
-                if text.len() > 80 {
-                    let end = text
-                        .char_indices()
-                        .map(|(i, _)| i)
-                        .take_while(|&i| i <= 77)
-                        .last()
-                        .unwrap_or(0);
-                    format!("{}...", &text[..end])
-                } else {
-                    text
-                }
-            });
-            (time, sender, preview)
-        } else {
-            (None, None, None)
-        };
+            let preview = msg.content.as_deref().map(preview_text);
+            match (&sender, &preview) {
+                (None, None) => None,
+                _ => Some(MessagePreview {
+                    sender: sender.unwrap_or_default(),
+                    timestamp: msg
+                        .original_arrival_time
+                        .as_deref()
+                        .or(msg.compose_time.as_deref())
+                        .and_then(parse_timestamp),
+                    text: preview.unwrap_or_default(),
+                }),
+            }
+        });
 
-        chats.push(ChatInfo {
-            id,
+        chats.push(Chat {
+            // Ids are non-empty here (empties are filtered above); on the off
+            // chance validation still rejects one, keep the chat with an
+            // unvalidated ChatId rather than dropping it.
+            id: ChatId::new(id.clone()).unwrap_or(ChatId(id)),
             name,
             is_group,
-            last_message_time: last_time,
-            last_message_sender: last_sender,
-            last_message_preview: last_preview,
+            last_message,
         });
     }
 
     Ok(chats)
 }
 
-/// Read messages from a specific chat thread and return structured data.
+/// Build the truncated, HTML-stripped preview text for a chat's last message.
+///
+/// Strips HTML/entities, then truncates to at most 80 bytes on a char
+/// boundary with a trailing ellipsis.
+fn preview_text(raw: &str) -> String {
+    let text = strip_html(raw);
+    if text.len() > 80 {
+        let end = text
+            .char_indices()
+            .map(|(i, _)| i)
+            .take_while(|&i| i <= 77)
+            .last()
+            .unwrap_or(0);
+        format!("{}...", &text[..end])
+    } else {
+        text
+    }
+}
+
+/// Read messages from a specific chat thread and return domain [`Message`] models.
 pub async fn read_messages_data(
     client: &TeamsClient,
     chat_id: &str,
     limit: usize,
-) -> Result<Vec<MessageInfo>> {
+) -> Result<Vec<Message>> {
     let base = client.chat_service_url();
     let url = format!(
         "{}/v1/users/ME/conversations/{}/messages?pageSize={}",
@@ -235,12 +243,11 @@ pub async fn read_messages_data(
         }
 
         let sender = msg.im_display_name.as_deref().unwrap_or("?").to_string();
-        let time = msg
+        let timestamp = msg
             .original_arrival_time
             .as_deref()
             .or(msg.compose_time.as_deref())
-            .unwrap_or("")
-            .to_string();
+            .and_then(parse_timestamp);
         let content = msg.content.as_deref().unwrap_or("");
         let text = strip_html(content);
 
@@ -248,9 +255,9 @@ pub async fn read_messages_data(
             continue;
         }
 
-        result.push(MessageInfo {
+        result.push(Message {
             sender,
-            timestamp: time,
+            timestamp,
             content: text.trim().to_string(),
         });
     }
@@ -266,12 +273,11 @@ mod tests {
     //! (`ConversationsResponse`, `Conversation`, ...) are private to this
     //! module, so a test outside `api::chat` cannot deserialize them. Deserializing
     //! a recorded fixture here verifies that the raw Teams `conversations`
-    //! payload maps onto the fields `ChatInfo` is built from — id, display name
-    //! (`threadProperties.topic` with sender fallback), and the HTML-stripped
+    //! payload maps onto the fields a domain `Chat` is built from — id, display
+    //! name (`threadProperties.topic` with sender fallback), and the HTML-stripped
     //! last-message preview — and that conversations without an id are skipped.
     //! No network: pure deserialization + the same pure conversion helpers used
-    //! by `list_chats_data`. The `ChatInfo` → domain `Chat` half lives in the
-    //! adapter's own test module (`adapters::http::reqwest_api`).
+    //! by `list_chats_data` (`parse_timestamp`, `preview_text`).
 
     use super::*;
     use crate::domain::strip_html;
@@ -396,5 +402,33 @@ mod tests {
         let is_group = |id: &str| id.contains("thread") || id.contains("meeting");
         assert!(is_group(group_id));
         assert!(!is_group(direct_id));
+    }
+
+    #[test]
+    fn parse_timestamp_accepts_rfc3339() {
+        assert!(parse_timestamp("2024-05-01T12:30:00Z").is_some());
+    }
+
+    #[test]
+    fn parse_timestamp_returns_none_on_garbage() {
+        assert!(parse_timestamp("not-a-date").is_none());
+        assert!(parse_timestamp("").is_none());
+        assert!(parse_timestamp("   ").is_none());
+    }
+
+    #[test]
+    fn preview_text_strips_html_and_decodes_entities() {
+        assert_eq!(
+            preview_text("<p>Hello <b>team</b> &amp; welcome!</p>"),
+            "Hello team & welcome!"
+        );
+    }
+
+    #[test]
+    fn preview_text_truncates_long_text_on_char_boundary() {
+        let long = "a".repeat(200);
+        let preview = preview_text(&long);
+        assert!(preview.ends_with("..."));
+        assert!(preview.len() <= 81);
     }
 }
