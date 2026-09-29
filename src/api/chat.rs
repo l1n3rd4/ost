@@ -28,15 +28,10 @@ struct Conversation {
 #[derive(Debug, Deserialize)]
 struct ThreadProperties {
     topic: Option<String>,
-    #[serde(rename = "lastjoinat")]
-    last_join_at: Option<String>,
-    /// For 1:1 chats, contains member MRIs
-    members: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct NativeMessage {
-    id: Option<String>,
     #[serde(rename = "composetime")]
     compose_time: Option<String>,
     #[serde(rename = "originalarrivaltime")]
@@ -45,7 +40,6 @@ struct NativeMessage {
     im_display_name: Option<String>,
     content: Option<String>,
     messagetype: Option<String>,
-    from: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -71,64 +65,6 @@ fn conversation_name(conv: &Conversation) -> String {
         }
     }
     conv.id.as_deref().unwrap_or("[unknown]").to_string()
-}
-
-/// List recent chats using the native Teams API (prints to stdout).
-pub async fn list_chats(limit: usize) -> Result<()> {
-    let client = TeamsClient::new().await?;
-    let chats = list_chats_data(&client, limit).await?;
-
-    println!("\nRecent Chats:");
-    println!("{:-<60}", "");
-
-    if chats.is_empty() {
-        println!("  (no chats found)");
-        return Ok(());
-    }
-
-    for chat in &chats {
-        println!("{}", chat.name);
-        println!("  ID: {}", chat.id);
-
-        if let Some(ref time) = chat.last_message_time {
-            println!("  Last: {}", time);
-        }
-        if let Some(ref preview) = chat.last_message_preview {
-            if !preview.trim().is_empty() {
-                let sender = chat.last_message_sender.as_deref().unwrap_or("?");
-                println!("  [{}]: {}", sender, preview.trim());
-            }
-        }
-
-        println!();
-    }
-
-    Ok(())
-}
-
-/// Read messages from a specific chat thread (prints to stdout).
-pub async fn read_messages(chat_id: &str, limit: usize) -> Result<()> {
-    let client = TeamsClient::new().await?;
-    let msgs = read_messages_data(&client, chat_id, limit).await?;
-
-    if msgs.is_empty() {
-        println!("(no messages)");
-        return Ok(());
-    }
-
-    for msg in &msgs {
-        println!("[{}] {}: {}", msg.timestamp, msg.sender, msg.content);
-    }
-
-    Ok(())
-}
-
-/// Send a message to a chat thread using the native API.
-pub async fn send_message(chat_id: &str, message: &str) -> Result<()> {
-    let client = TeamsClient::new().await?;
-    send_message_with_client(&client, chat_id, message).await?;
-    println!("Message sent.");
-    Ok(())
 }
 
 /// Send a message using an existing client (shared helper).

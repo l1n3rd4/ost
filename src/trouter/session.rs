@@ -1,25 +1,7 @@
 //! Trouter v4 session negotiation
 
 use anyhow::{Context, Result};
-use serde::de;
 use serde::Deserialize;
-
-fn string_or_u64<'de, D: de::Deserializer<'de>>(d: D) -> std::result::Result<u64, D::Error> {
-    struct Visitor;
-    impl<'de> de::Visitor<'de> for Visitor {
-        type Value = u64;
-        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            f.write_str("u64 or stringified u64")
-        }
-        fn visit_u64<E: de::Error>(self, v: u64) -> std::result::Result<u64, E> {
-            Ok(v)
-        }
-        fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<u64, E> {
-            v.parse().map_err(E::custom)
-        }
-    }
-    d.deserialize_any(Visitor)
-}
 
 #[derive(Debug, Deserialize)]
 pub struct ConnectParams {
@@ -36,9 +18,6 @@ pub struct ConnectParams {
 pub struct SessionResponse {
     pub socketio: String,
     pub surl: String,
-    pub url: String,
-    #[serde(deserialize_with = "string_or_u64")]
-    pub ttl: u64,
     pub connectparams: ConnectParams,
     pub ccid: Option<String>,
     #[serde(default)]
@@ -144,7 +123,7 @@ pub async fn negotiate(
 
 /// Get a socket.io session ID by sending an authenticated GET request.
 pub async fn get_session_id(
-    http: &reqwest::Client,
+    _http: &reqwest::Client,
     session: &SessionResponse,
     skype_token: &str,
     epid: &str,

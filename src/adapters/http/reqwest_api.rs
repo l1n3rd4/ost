@@ -51,10 +51,6 @@ impl ReqwestTeamsApi {
         Ok(Self { client })
     }
 
-    /// Build the adapter from an already-constructed [`TeamsClient`].
-    pub fn from_client(client: TeamsClient) -> Self {
-        Self { client }
-    }
 }
 
 /// Classify an infra (`anyhow`) error into the precise [`DomainError`] variant.

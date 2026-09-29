@@ -35,15 +35,6 @@ impl TrouterSocket {
         Ok(Self { stream })
     }
 
-    /// Send a text frame.
-    pub async fn send_text(&mut self, msg: &str) -> Result<()> {
-        tracing::debug!("WS send: {}", msg);
-        self.stream
-            .send(Message::Text(msg.to_string()))
-            .await
-            .context("Failed to send WebSocket message")
-    }
-
     /// Receive the next text frame, ignoring pings/pongs.
     ///
     /// Automatically sends HTTP 200 responses for Trouter data frame deliveries.

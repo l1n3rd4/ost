@@ -8,7 +8,6 @@ mod app;
 mod auth;
 mod config;
 mod domain;
-mod models;
 mod ports;
 mod trouter;
 mod tui;

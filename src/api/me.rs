@@ -11,21 +11,6 @@ struct MeResponse {
     #[serde(rename = "displayName")]
     display_name: Option<String>,
     mail: Option<String>,
-    #[serde(rename = "userPrincipalName")]
-    user_principal_name: Option<String>,
-}
-
-/// Fetch and display current user info from Graph /me endpoint (prints to stdout).
-pub async fn whoami() -> Result<()> {
-    let client = TeamsClient::new().await?;
-    let info = whoami_data(&client).await?;
-
-    println!();
-    println!("Display Name: {}", info.display_name);
-    println!("Mail:         {}", info.mail.as_deref().unwrap_or("(none)"));
-    println!("ID:           {}", info.id);
-
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------

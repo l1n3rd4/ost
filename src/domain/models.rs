@@ -77,6 +77,11 @@ pub enum Presence {
 }
 
 /// Result of successfully sending a message.
+///
+/// Part of the `TeamsApiPort::send_message` / `PresenterPort::message_sent`
+/// contract: the adapter constructs it and presenters carry it; the individual
+/// fields are read by tests and reserved for presenter use.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SentMessage {
     pub id: String,
@@ -96,6 +101,9 @@ pub struct Team {
 #[derive(Debug, Clone)]
 pub enum RealtimeEvent {
     MessageReceived { chat_id: ChatId, message: Message },
+    // Handled by presenters (see console/tui presenters); not yet emitted by
+    // the realtime adapter, so never constructed in non-test code.
+    #[allow(dead_code)]
     PresenceChanged { user_id: String, presence: Presence },
     CallInfo(String),
     Unknown(String),

@@ -14,6 +14,9 @@ pub struct StoredToken {
     pub expires_at: Option<u64>,
 }
 
+// Pure token-expiry rules; exercised by the unit/property tests below. No
+// production caller yet (the live auth path uses `crate::auth::StoredToken`).
+#[allow(dead_code)]
 impl StoredToken {
     /// Build a token, converting a relative lifetime into an absolute expiry.
     pub fn new(token: String, expires_in_secs: Option<u64>) -> Self {

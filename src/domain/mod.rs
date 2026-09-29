@@ -13,5 +13,9 @@ pub use error::{DomainError, DomainResult};
 pub use models::{
     Chat, ChatId, Message, MessagePreview, Presence, RealtimeEvent, SentMessage, Team, User,
 };
-pub use rules::{html_escape, strip_html, SendMessageCommand, MAX_MESSAGE_CHARS};
-pub use token::{Credentials, StoredToken};
+pub use rules::{html_escape, strip_html, SendMessageCommand};
+pub use token::Credentials;
+// `StoredToken` is used in `Credentials` and by adapter tests via
+// `crate::domain::StoredToken`; re-exported for those consumers.
+#[allow(unused_imports)]
+pub use token::StoredToken;

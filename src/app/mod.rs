@@ -11,13 +11,11 @@
 //!
 //! [`PresenterPort`]: crate::ports::PresenterPort
 
-pub mod auth_service;
 pub mod chat_service;
 pub mod presence_service;
 pub mod realtime_service;
 pub mod team_service;
 
-pub use auth_service::AuthService;
 pub use chat_service::ChatService;
 pub use presence_service::PresenceService;
 pub use realtime_service::RealtimeService;

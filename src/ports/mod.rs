@@ -12,10 +12,8 @@ pub mod api;
 pub mod config_repo;
 pub mod presenter;
 pub mod realtime;
-pub mod token_store;
 
 pub use api::{GraphPort, TeamsApiPort};
 pub use config_repo::ConfigRepositoryPort;
 pub use presenter::PresenterPort;
 pub use realtime::RealtimePort;
-pub use token_store::TokenStorePort;

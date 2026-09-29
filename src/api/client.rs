@@ -149,43 +149,6 @@ impl TeamsClient {
         check_response(resp, &url).await
     }
 
-    /// GET request to Teams/Skype API (X-SkypeToken header).
-    pub async fn teams_get(&self, url: &str) -> Result<reqwest::Response> {
-        let token = self.skype_token()?;
-        tracing::debug!("Teams GET {}", url);
-
-        let resp = self
-            .http
-            .get(url)
-            .header("X-SkypeToken", &token)
-            .send()
-            .await
-            .with_context(|| format!("Teams GET {} failed", url))?;
-
-        check_response(resp, url).await
-    }
-
-    /// POST request to Teams/Skype API (X-SkypeToken header).
-    pub async fn teams_post(
-        &self,
-        url: &str,
-        body: &serde_json::Value,
-    ) -> Result<reqwest::Response> {
-        let token = self.skype_token()?;
-        tracing::debug!("Teams POST {}", url);
-
-        let resp = self
-            .http
-            .post(url)
-            .header("X-SkypeToken", &token)
-            .json(body)
-            .send()
-            .await
-            .with_context(|| format!("Teams POST {} failed", url))?;
-
-        check_response(resp, url).await
-    }
-
     /// Chat service base URL from region_gtms, falling back to default.
     pub fn chat_service_url(&self) -> String {
         self.config
